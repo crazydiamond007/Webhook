@@ -61,6 +61,11 @@ select = [
     "TRY",       # tryceratops
     "ARG",       # unused arguments
     "PTH",       # use pathlib
+    # SPEC 6.2: "No Any without a reason written next to it." ANN401 bans Any in
+    # the signatures we write. We do NOT use mypy's disallow_any_explicit for
+    # this: pydantic's BaseModel.__init__ is `(**data: Any)`, so that flag fires
+    # on every model declaration and would force a blanket ignore per class.
+    "ANN401",
 ]
 ignore = [
     "TRY003",  # long messages outside exception class: we want them
@@ -84,7 +89,6 @@ files = ["src", "tests"]
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
 warn_unused_ignores = true
-disallow_any_explicit = true
 disallow_any_generics = true
 show_error_codes = true
 
