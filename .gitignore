@@ -11,3 +11,8 @@ dist/
 build/
 *.egg-info/
 .env
+
+# IDE / editor project files
+.idea/
+.vscode/
+*.swp
