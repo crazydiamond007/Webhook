@@ -31,12 +31,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from webhook_receiver.adapters import queue
 from webhook_receiver.adapters.clock import Clock
 from webhook_receiver.adapters.database import session_scope
+from webhook_receiver.adapters.failures import is_retryable
 from webhook_receiver.adapters.ledger import apply_effect
 from webhook_receiver.adapters.locks import lock_entity
+from webhook_receiver.adapters.rng import Rng
 from webhook_receiver.config import Settings
+from webhook_receiver.domain.backoff import next_delay_seconds
 from webhook_receiver.domain.effects import EffectResult
 from webhook_receiver.domain.enums import AttemptOutcome
-from webhook_receiver.domain.errors import NonRetryableError, ProcessingError
+from webhook_receiver.domain.errors import ProcessingError
 from webhook_receiver.domain.events import StoredEvent
 from webhook_receiver.domain.handlers import HandlerRegistry
 
@@ -68,6 +71,7 @@ async def process_event(
     registry: HandlerRegistry,
     settings: Settings,
     clock: Clock,
+    rng: Rng,
 ) -> AttemptOutcome | None:
     """Run one event to a terminal state, or hand it back.
 
@@ -105,6 +109,7 @@ async def process_event(
             exc=exc,
             settings=settings,
             clock=clock,
+            rng=rng,
             started_at=started_at,
         )
 
@@ -165,6 +170,7 @@ async def _record_failure(
     exc: Exception,
     settings: Settings,
     clock: Clock,
+    rng: Rng,
     started_at: datetime,
 ) -> AttemptOutcome | None:
     """Write the failed attempt and decide the event's fate, in a fresh transaction.
@@ -173,7 +179,12 @@ async def _record_failure(
     database, already aborted -- every statement in it would raise
     `InFailedSqlTransaction`, including the ones trying to record what went wrong.
     """
-    retryable = not isinstance(exc, NonRetryableError)
+    # FR-11. Retryability is *earned*, not assumed: an exception we cannot
+    # classify is far more likely to be our own bug than the world's weather, and
+    # a bug is not fixed by a fourth attempt (SPEC §6.6). See adapters/failures.py
+    # for why the genuinely transient cases have to be enumerated for that default
+    # to be safe.
+    retryable = is_retryable(exc)
     outcome = AttemptOutcome.RETRYABLE_ERROR if retryable else AttemptOutcome.NON_RETRYABLE_ERROR
     detail = _redacted_detail(exc)
 
@@ -199,10 +210,16 @@ async def _record_failure(
 
         exhausted = attempt_number >= settings.max_attempts
         if retryable and not exhausted:
-            # TODO(day-3): FR-12 replaces this fixed delay with exponential
-            # backoff plus full jitter, from a seedable RNG. The retry *mechanism*
-            # is what this slice owes; the schedule is the next slice's.
-            next_attempt_at = finished_at + timedelta(seconds=settings.backoff_base_seconds)
+            # FR-12: exponential, capped, with FULL jitter -- so that a batch of
+            # events that failed together does not retry together and knock the
+            # recovering downstream straight back over (domain/backoff.py).
+            delay = next_delay_seconds(
+                attempt=attempt_number,
+                base_seconds=settings.backoff_base_seconds,
+                cap_seconds=settings.backoff_cap_seconds,
+                rng=rng,
+            )
+            next_attempt_at = finished_at + timedelta(seconds=delay)
             await queue.reschedule(
                 session,
                 event_id=event_id,
@@ -214,6 +231,8 @@ async def _record_failure(
                 "process.retry_scheduled",
                 event_id=event_id,
                 attempt=attempt_number,
+                of_max=settings.max_attempts,
+                delay_seconds=round(delay, 3),
                 error_class=type(exc).__name__,
             )
             return outcome
