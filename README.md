@@ -49,9 +49,24 @@ That brings up four services in order: `postgres` → `migrate` (applies migrati
 `app` and `worker`.
 
 There's a `Makefile` wrapping both ways to run it — `make` on its own lists every target. The
-Docker stack is `make up` / `make down`; the local flow is below. Once it's running, POST a
-signed demo event with `make send` (`make send ARGS="--count 2"` to see idempotency: one row, two
-`200`s, the second a duplicate).
+Docker stack is `make up` / `make down`; the local flow is below.
+
+Once it's up, `make demo` sends a signed event twice and then delivers two snapshots out of order,
+and `make balance` shows what the worker did with them:
+
+```bash
+make demo      # duplicate delivery + reordered delivery, on one account
+make balance   # the account, the ledger, and every processing attempt
+```
+
+The balance lands on **1000**, the ledger has one row per *applied* event, and the stale snapshot is
+recorded as `superseded` rather than applied. To drive it by hand, `make send` takes flags:
+
+```bash
+make send ARGS="--count 2"                                       # same event twice -> one row
+make send ARGS="--event-type balance.snapshot --balance 900 --sequence 3"
+make send ARGS="--skew 400"                                      # stale signature -> 401
+```
 
 Check it's up:
 
@@ -175,10 +190,17 @@ docs/adr/      architecture decision records
 ```
 
 
-Endpoints live today: `GET /healthz`, `GET /readyz`.
+## What works today
 
-The database schema is already complete — all six tables and four enum types, with every constraint
-the design depends on.
+| | |
+|---|---|
+| **Endpoints** | `POST /v1/webhooks/{source}`, `GET /healthz`, `GET /readyz` |
+| **Event types** | `balance.credited`, `balance.debited`, `balance.snapshot` |
+| **Guarantees** | Signature + timestamp verification, deduplicated ingestion, exactly-once effects, per-entity serialisation, out-of-order handling |
+
+Not built yet: retry backoff, the dead-letter queue and replay endpoint, the admin query API, and
+`/metrics`. An event that fails is retried on a fixed delay and dead-lettered after `MAX_ATTEMPTS`;
+the jittered schedule and the DLQ lifecycle land next.
 
 ## Further reading
 
