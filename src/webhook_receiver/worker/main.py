@@ -19,11 +19,13 @@ import contextlib
 import signal
 
 import structlog
+from prometheus_client import start_http_server
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from webhook_receiver.adapters import queue
 from webhook_receiver.adapters.clock import Clock, SystemClock
 from webhook_receiver.adapters.database import create_engine, create_session_factory, session_scope
+from webhook_receiver.adapters.rng import Rng, create_rng
 from webhook_receiver.config import Settings, get_settings
 from webhook_receiver.domain.balance import registry
 from webhook_receiver.domain.handlers import HandlerRegistry
@@ -38,6 +40,7 @@ async def poll_once(
     *,
     settings: Settings,
     clock: Clock,
+    rng: Rng,
     handlers: HandlerRegistry,
 ) -> int:
     """Process one batch of due events. Returns how many ids we looked at.
@@ -62,6 +65,7 @@ async def poll_once(
             registry=handlers,
             settings=settings,
             clock=clock,
+            rng=rng,
         )
 
     structlog.contextvars.clear_contextvars()
@@ -82,16 +86,28 @@ async def run(settings: Settings, shutdown: asyncio.Event) -> None:
     engine = create_engine(settings)
     factory = create_session_factory(engine)
     clock = SystemClock()
+    # Seeded only if JITTER_SEED is set, which is a test and debugging affordance.
+    # Seeding every worker in production would give the whole fleet the *same*
+    # jitter, which is precisely the lockstep that jitter exists to break.
+    rng = create_rng(settings.jitter_seed)
 
     try:
         log.info(
             "worker.started",
             poll_interval_seconds=settings.poll_interval_seconds,
             poll_batch_size=settings.poll_batch_size,
+            max_attempts=settings.max_attempts,
             event_types=sorted(registry.event_types),
         )
+        if settings.jitter_seed is not None:
+            # Loud, because a seeded RNG in production is a correctness problem
+            # that looks like nothing until the retries synchronise.
+            log.warning("worker.jitter_seeded", seed=settings.jitter_seed)
+
         while not shutdown.is_set():
-            processed = await poll_once(factory, settings=settings, clock=clock, handlers=registry)
+            processed = await poll_once(
+                factory, settings=settings, clock=clock, rng=rng, handlers=registry
+            )
             if processed == 0:
                 # Waiting on the event rather than sleeping makes shutdown
                 # immediate instead of taking up to a full poll interval.
@@ -110,6 +126,18 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop, shutdown: asyncio.
 async def _main() -> None:
     settings = get_settings()
     configure_logging(level=settings.log_level, environment=settings.environment)
+
+    # FR-19. The worker owns the `processed`, `retried` and `dead_lettered`
+    # counters -- they are incremented in *this* process, and Prometheus scrapes a
+    # process, not an application. Without a server here they would be invisible:
+    # the app's /metrics would report only ingestion, and the half of the pipeline
+    # where events actually fail would have no telemetry at all.
+    #
+    # A daemon thread with its own tiny HTTP server, which is what
+    # `prometheus_client` gives us. It does not touch the event loop and it dies
+    # with the process.
+    start_http_server(settings.worker_metrics_port)
+    log.info("worker.metrics_listening", port=settings.worker_metrics_port)
 
     shutdown = asyncio.Event()
     _install_signal_handlers(asyncio.get_running_loop(), shutdown)

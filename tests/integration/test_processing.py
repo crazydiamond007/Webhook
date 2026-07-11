@@ -33,6 +33,7 @@ from webhook_receiver.adapters.clock import FixedClock
 from webhook_receiver.adapters.database import create_session_factory, session_scope
 from webhook_receiver.adapters.locks import lock_entity
 from webhook_receiver.adapters.orm import Account, LedgerEntry, ProcessingAttempt, WebhookEvent
+from webhook_receiver.adapters.rng import SeededRng
 from webhook_receiver.config import Settings
 from webhook_receiver.domain.balance import CREDITED, DEBITED, SNAPSHOT, registry
 from webhook_receiver.domain.enums import AttemptOutcome, WebhookStatus
@@ -44,6 +45,9 @@ pytestmark = pytest.mark.integration
 
 NOW = datetime(2026, 7, 11, 12, 0, 0, tzinfo=UTC)
 ACCOUNT = "acct_1"
+
+# Seeded: the retry schedule must be assertable, not merely plausible (SPEC §6.4).
+RNG = SeededRng(20260711)
 
 
 @pytest.fixture
@@ -144,10 +148,10 @@ class TestExactlyOnce:
             event_id = await seed_event(session, external_id="evt_1", payload={"amount": 500})
 
         outcome = await process_event(
-            factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+            factory, event_id=event_id, registry=registry, settings=settings, clock=clock, rng=RNG
         )
 
-        assert outcome is AttemptOutcome.SUCCEEDED
+        assert outcome.outcome is AttemptOutcome.SUCCEEDED
         assert await balance_of(engine) == 500
         assert await count_of(engine, LedgerEntry) == 1
 
@@ -170,7 +174,7 @@ class TestExactlyOnce:
             event_id = await seed_event(session, external_id="evt_1", payload={"amount": 500})
 
         await process_event(
-            factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+            factory, event_id=event_id, registry=registry, settings=settings, clock=clock, rng=RNG
         )
         async with session_scope(factory) as session:
             await session.execute(
@@ -180,13 +184,13 @@ class TestExactlyOnce:
             )
 
         outcome = await process_event(
-            factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+            factory, event_id=event_id, registry=registry, settings=settings, clock=clock, rng=RNG
         )
 
         # Reported as a success, because it *is* one: the effect exists, which is
         # all the caller ever asked for. The unique constraint stopped the second
         # ledger row, so the balance did not move.
-        assert outcome is AttemptOutcome.SUCCEEDED
+        assert outcome.outcome is AttemptOutcome.SUCCEEDED
         assert await balance_of(engine) == 500
         assert await count_of(engine, LedgerEntry) == 1
 
@@ -205,7 +209,12 @@ class TestExactlyOnce:
 
         for event_id in (credit, debit):
             await process_event(
-                factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+                factory,
+                event_id=event_id,
+                registry=registry,
+                settings=settings,
+                clock=clock,
+                rng=RNG,
             )
 
         assert await balance_of(engine) == 300
@@ -237,8 +246,8 @@ class TestClaiming:
         # Two independent poll loops racing over the same queue, which is exactly
         # what `docker compose up --scale worker=4` produces.
         await asyncio.gather(
-            poll_once(factory, settings=settings, clock=clock, handlers=registry),
-            poll_once(factory, settings=settings, clock=clock, handlers=registry),
+            poll_once(factory, settings=settings, clock=clock, rng=RNG, handlers=registry),
+            poll_once(factory, settings=settings, clock=clock, rng=RNG, handlers=registry),
         )
 
         # Nothing double-claimed: one ledger row and one attempt per event. A
@@ -280,7 +289,12 @@ class TestPerEntitySerialisation:
         await asyncio.gather(
             *(
                 process_event(
-                    factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+                    factory,
+                    event_id=event_id,
+                    registry=registry,
+                    settings=settings,
+                    clock=clock,
+                    rng=RNG,
                 )
                 for event_id in ids
             )
@@ -314,10 +328,10 @@ class TestPerEntitySerialisation:
             await lock_entity(blocker, entity_type="account", entity_id=ACCOUNT, timeout_seconds=5)
 
             outcome = await process_event(
-                factory, event_id=other, registry=registry, settings=settings, clock=clock
+                factory, event_id=other, registry=registry, settings=settings, clock=clock, rng=RNG
             )
 
-        assert outcome is AttemptOutcome.SUCCEEDED
+        assert outcome.outcome is AttemptOutcome.SUCCEEDED
         assert await balance_of(engine, "acct_2") == 700
 
     async def test_an_event_for_a_locked_account_is_retried_not_failed(
@@ -338,10 +352,15 @@ class TestPerEntitySerialisation:
             await lock_entity(blocker, entity_type="account", entity_id=ACCOUNT, timeout_seconds=5)
 
             outcome = await process_event(
-                factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+                factory,
+                event_id=event_id,
+                registry=registry,
+                settings=settings,
+                clock=clock,
+                rng=RNG,
             )
 
-        assert outcome is AttemptOutcome.RETRYABLE_ERROR
+        assert outcome.outcome is AttemptOutcome.RETRYABLE_ERROR
         assert await count_of(engine, LedgerEntry) == 0
 
         status, attempts = await event_row(engine, event_id)
@@ -389,17 +408,16 @@ class TestOrdering:
                 provider_sequence=1,
             )
 
-        assert (
-            await process_event(
-                factory, event_id=newer, registry=registry, settings=settings, clock=clock
-            )
-            is AttemptOutcome.SUCCEEDED
+        first = await process_event(
+            factory, event_id=newer, registry=registry, settings=settings, clock=clock, rng=RNG
         )
+        assert first.outcome is AttemptOutcome.SUCCEEDED
+
         stale_outcome = await process_event(
-            factory, event_id=older, registry=registry, settings=settings, clock=clock
+            factory, event_id=older, registry=registry, settings=settings, clock=clock, rng=RNG
         )
 
-        assert stale_outcome is AttemptOutcome.SUPERSEDED
+        assert stale_outcome.outcome is AttemptOutcome.SUPERSEDED
         assert await balance_of(engine) == 1000  # the newer state survived
         assert await count_of(engine, LedgerEntry) == 1  # the stale event applied nothing
 
@@ -443,7 +461,12 @@ class TestOrdering:
 
         for event_id in (snapshot, late_credit):
             await process_event(
-                factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+                factory,
+                event_id=event_id,
+                registry=registry,
+                settings=settings,
+                clock=clock,
+                rng=RNG,
             )
 
         assert await balance_of(engine) == 1250
@@ -472,12 +495,12 @@ class TestFailure:
             event_id = await seed_event(session, external_id="evt_1", event_type="invoice.exploded")
 
         outcome = await process_event(
-            factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+            factory, event_id=event_id, registry=registry, settings=settings, clock=clock, rng=RNG
         )
 
         # Straight to the DLQ on the first attempt: it will be just as unknown on
         # the fifth, and retrying it would only delay the events behind it.
-        assert outcome is AttemptOutcome.NON_RETRYABLE_ERROR
+        assert outcome.outcome is AttemptOutcome.NON_RETRYABLE_ERROR
 
         status, attempts = await event_row(engine, event_id)
         assert status is WebhookStatus.DEAD_LETTERED
@@ -509,7 +532,7 @@ class TestFailure:
             event_id = await seed_event(session, external_id="evt_1", payload={"amount": secret})
 
         await process_event(
-            factory, event_id=event_id, registry=registry, settings=settings, clock=clock
+            factory, event_id=event_id, registry=registry, settings=settings, clock=clock, rng=RNG
         )
 
         async with engine.connect() as conn:

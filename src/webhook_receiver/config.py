@@ -85,8 +85,34 @@ class Settings(BaseSettings):
     admin_api_key: SecretStr = Field(
         description="FR-20: required by admin, replay, and DLQ endpoints.",
     )
+    admin_page_size: int = Field(
+        default=50,
+        gt=0,
+        le=500,
+        description="FR-18: default rows per admin listing.",
+    )
+    replay_max_batch: int = Field(
+        default=100,
+        gt=0,
+        description=(
+            "FR-16: most events one replay request may touch. A bound, not a "
+            "preference: replay is synchronous and takes an advisory lock per "
+            "event, so an unbounded 'replay everything' is a self-inflicted outage."
+        ),
+    )
 
     # --- Worker poll (FR-7) --------------------------------------------------
+
+    worker_metrics_port: int = Field(
+        default=9100,
+        gt=0,
+        le=65535,
+        description=(
+            "FR-19: the worker serves its own /metrics here. The processed, "
+            "retried and dead-lettered counters live in the worker process, and a "
+            "counter nothing can scrape is not a metric."
+        ),
+    )
 
     poll_batch_size: int = Field(
         default=100,
