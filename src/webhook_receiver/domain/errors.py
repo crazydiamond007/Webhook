@@ -34,6 +34,15 @@ class NonRetryableError(ProcessingError):
     """Permanent. Retrying cannot change the outcome, so do not (FR-11, FR-14)."""
 
 
+class LockContentionError(RetryableError):
+    """Another worker holds this entity's lock and would not let go in time (FR-9).
+
+    Not a failure of the event: the event is fine, the entity was simply busy.
+    Retrying is the *entire* point -- by the time we come back, the worker ahead
+    of us has committed, and we will see the state it wrote.
+    """
+
+
 class UnknownEventTypeError(NonRetryableError):
     """No handler is registered for this ``event_type`` (FR-8).
 
