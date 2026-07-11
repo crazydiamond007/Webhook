@@ -127,7 +127,7 @@ class TestSnapshot:
             make_event(event_type=SNAPSHOT, payload={"balance": 1200}, provider_sequence=7)
         )
 
-        assert effect == SetBalance(account_ref="acct_1", balance_minor=1200)
+        assert effect == SetBalance(account_ref="acct_1", balance_minor=1200, sequence=7)
 
     def test_a_snapshot_without_an_ordering_key_is_refused(self) -> None:
         # FR-10: a last-writer-wins effect with no way to tell who wrote last
@@ -143,4 +143,13 @@ class TestSnapshot:
             make_event(event_type=SNAPSHOT, payload={"balance": -50}, provider_sequence=7)
         )
 
-        assert effect == SetBalance(account_ref="acct_1", balance_minor=-50)
+        assert effect == SetBalance(account_ref="acct_1", balance_minor=-50, sequence=7)
+
+    def test_a_sequence_of_zero_is_refused(self) -> None:
+        # 0 is the `version` of an account nothing has been applied to, and the
+        # guard is a strict `>`, so a snapshot at 0 could never win. Refusing it
+        # is honest; accepting it would be a snapshot that silently never applies.
+        with pytest.raises(UnprocessableEventError, match="provider_sequence"):
+            registry.dispatch(
+                make_event(event_type=SNAPSHOT, payload={"balance": 10}, provider_sequence=0)
+            )

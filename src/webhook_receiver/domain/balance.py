@@ -29,6 +29,11 @@ CREDITED = "balance.credited"
 DEBITED = "balance.debited"
 SNAPSHOT = "balance.snapshot"
 
+# The lowest ordering key a snapshot may carry. 0 is reserved for "no event has
+# been applied to this account yet" -- it is the `account.version` default -- and
+# the ordering guard is a strict `>`, so a snapshot at 0 could never win.
+MIN_SEQUENCE = 1
+
 
 def _account_ref(event: StoredEvent) -> str:
     """The account this event is about, or a refusal to guess."""
@@ -100,20 +105,29 @@ def handle_debited(event: StoredEvent) -> Credit:
 def handle_snapshot(event: StoredEvent) -> SetBalance:
     """Reconcile to an absolute balance -- the one event type that can go stale.
 
-    It is refused outright without a `provider_sequence`. A last-writer-wins
-    effect with no way to tell who wrote last is not something we can apply
+    It is refused outright without a usable `provider_sequence`. A last-writer-
+    wins effect with no way to tell who wrote last is not something we can apply
     safely, and applying it anyway would mean a late redelivery could rewind an
     account to a balance that stopped being true hours ago. Refusing is the
     conservative failure: the event is dead-lettered and a human sees it, rather
     than the balance quietly going wrong.
+
+    The sequence must be `>= 1`. Zero is reserved: it is the `version` of an
+    account nothing has been applied to yet, and the guard is a strict `>`.
     """
-    if event.provider_sequence is None:
+    sequence = event.provider_sequence
+    if sequence is None or sequence < MIN_SEQUENCE:
         msg = (
-            f"{SNAPSHOT!r} sets an absolute balance and needs a provider_sequence to order it; "
-            f"without one a stale snapshot could overwrite newer state"
+            f"{SNAPSHOT!r} sets an absolute balance and needs a provider_sequence "
+            f"of at least {MIN_SEQUENCE} to order it; without one a stale snapshot "
+            f"could overwrite newer state"
         )
         raise UnprocessableEventError(msg)
     # Not `_non_negative`: an account genuinely can be overdrawn, and a snapshot
     # reports what *is*, not what should be.
     balance = _minor_units(event.payload, "balance")
-    return SetBalance(account_ref=_account_ref(event), balance_minor=balance)
+    return SetBalance(
+        account_ref=_account_ref(event),
+        balance_minor=balance,
+        sequence=sequence,
+    )

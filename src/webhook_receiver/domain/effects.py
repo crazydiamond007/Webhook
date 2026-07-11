@@ -25,6 +25,7 @@ handling, because in an additive-only domain order does not matter.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,12 +46,37 @@ class SetBalance:
     """Reconcile the balance to an absolute value the provider asserts.
 
     Last-writer-wins, so it carries an ordering obligation: applying it out of
-    order would clobber newer state. The guard lives in the adapter, which is the
-    only place that can compare it against what has already been applied.
+    order would clobber newer state.
+
+    ``sequence`` is required, not optional. It is the provider's ordering key,
+    and it lives on the effect rather than being fished back out of the event by
+    the adapter -- so the adapter has no ``None`` to handle, no re-validation to
+    do, and no way to forget the guard. The handler has already refused any
+    snapshot that arrives without one.
     """
 
     account_ref: str
     balance_minor: int
+    sequence: int
 
 
 type Effect = Credit | SetBalance
+
+
+class EffectResult(StrEnum):
+    """What actually happened when the effect met the database.
+
+    Three outcomes, and the difference between them is the whole correctness
+    story of this service:
+
+    * ``APPLIED`` -- the ledger row is new; the balance moved.
+    * ``ALREADY_APPLIED`` -- the unique ``event_id`` rejected a second ledger row
+      for this event. The effect had already happened, so nothing moved (FR-6).
+      Not an error: this is a redelivery or a replay doing exactly what it should.
+    * ``SUPERSEDED`` -- newer state is already in place, so a stale last-writer-
+      wins effect was deliberately *not* applied (FR-10).
+    """
+
+    APPLIED = "applied"
+    ALREADY_APPLIED = "already_applied"
+    SUPERSEDED = "superseded"

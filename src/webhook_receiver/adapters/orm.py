@@ -165,9 +165,12 @@ class ProcessingAttempt(Base):
     attempt_number: Mapped[int] = mapped_column(Integer)
 
     started_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    # Nullable until the attempt lands. A row with `finished_at IS NULL` and a
-    # stale `started_at` is exactly the signature of a worker that died
-    # mid-processing (NFR-4).
+    # Nullable in the schema, but never actually null in practice: the attempt is
+    # written in the same transaction as the work it describes, so it only becomes
+    # visible once it is complete (ADR-0003). A half-written attempt is not a state
+    # this design can produce -- which costs us a diagnostic for a worker that died
+    # mid-processing, and buys us never having produced the half-applied effect
+    # that diagnostic would have been pointing at (NFR-4).
     finished_at: Mapped[datetime | None]
     outcome: Mapped[AttemptOutcome | None] = mapped_column(
         _pg_enum(AttemptOutcome, "attempt_outcome")
