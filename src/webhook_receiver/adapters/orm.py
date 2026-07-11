@@ -235,7 +235,15 @@ class Account(Base):
     id: Mapped[int] = _pk()
     external_ref: Mapped[str] = mapped_column(Text)
     balance_minor: Mapped[int] = mapped_column(BigInteger, server_default="0")
-    version: Mapped[int] = mapped_column(Integer, server_default="0")
+    # FR-10: the `provider_sequence` of the newest event applied to this account
+    # -- a high-water mark, not a row counter. A snapshot whose sequence does not
+    # exceed it arrived late and is superseded rather than applied.
+    #
+    # `BigInteger` because it stores a provider sequence, and
+    # `webhook_event.provider_sequence` is one. As `Integer` it would truncate
+    # above 2^31-1 and compare against a wrong number, discarding live snapshots
+    # as stale (migration 0002).
+    version: Mapped[int] = mapped_column(BigInteger, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
