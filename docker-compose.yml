@@ -29,6 +29,14 @@ x-app-env: &app-env
 services:
   postgres:
     image: postgres:16-alpine
+    # `app` and `worker` are `unless-stopped`; without the same policy here they
+    # would come back after a reboot and crash-loop against a database that did
+    # not. It also means the database survives a Docker Desktop restart on its
+    # own, so a SQL client can reach it without the app running at all.
+    #
+    # `unless-stopped`, not `always`: `make down` is a decision, and a container
+    # that resurrects itself after you deliberately stopped it is a poltergeist.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: webhook
       POSTGRES_PASSWORD: webhook
@@ -86,6 +94,27 @@ services:
       target: runtime
     environment: *app-env
     command: ["python", "-m", "webhook_receiver.worker.main"]
+    healthcheck:
+      # The image's HEALTHCHECK polls /healthz on :8000, which is the *app's*
+      # port. The worker never listens there, so it inherited a probe it could
+      # never pass and sat permanently unhealthy -- invisible until something
+      # finally waited on it, and a guaranteed restart loop under ECS or
+      # Kubernetes, which kill what they cannot prove is alive.
+      #
+      # The worker's own /metrics is the honest signal: it is served from the
+      # worker process itself, so a reply means that process is up and answering.
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          sys.exit(0 if urllib.request.urlopen(
+              "http://127.0.0.1:9100/metrics", timeout=2).status == 200 else 1)
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
     ports:
       # FR-19. The worker serves its own /metrics: the processed, retried and
       # dead-lettered counters are incremented in *this* process, and Prometheus
