@@ -1,0 +1,110 @@
+#!/usr/bin/env python
+"""POST a correctly signed webhook to a running instance -- for manual testing.
+
+It signs with the *same* secret the server verifies against, by reading it out of
+`Settings` (your `.env`), so a delivery it produces always authenticates. Send
+the same event twice to watch idempotency work:
+
+    make send ARGS="--count 2"     # one row, two 200s, the second a duplicate
+
+Stdlib only (urllib), so it runs without the test dependencies. It signs and
+sends; it applies no effects -- that is the worker's job.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import UTC, datetime
+
+from webhook_receiver.api.signature import SIGNATURE_HEADER, expected_signature
+from webhook_receiver.config import get_settings
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Send a signed test webhook.")
+    parser.add_argument("--url", default="http://localhost:8000", help="Base URL of the app.")
+    parser.add_argument("--source", default="stripe", help="The {source} path segment.")
+    parser.add_argument("--event-id", default=None, help="Event id (default: time-based).")
+    parser.add_argument("--event-type", default="balance.credited", help="Event type.")
+    parser.add_argument("--entity-type", default="account", help="Entity type.")
+    parser.add_argument("--entity-id", default="acct_1", help="Entity id.")
+    parser.add_argument("--amount", type=int, default=500, help="A value for data.amount.")
+    parser.add_argument("--idempotency-key", default=None, help="Override the dedup key.")
+    parser.add_argument("--count", type=int, default=1, help="Send the same event N times.")
+    parser.add_argument(
+        "--skew",
+        type=int,
+        default=0,
+        help="Add this many seconds to the signed timestamp (try 400 to force a 401).",
+    )
+    return parser.parse_args()
+
+
+def _build_body(args: argparse.Namespace, event_id: str) -> bytes:
+    envelope = {
+        "id": event_id,
+        "type": args.event_type,
+        "occurred_at": datetime.now(UTC).isoformat(),
+        "entity": {"type": args.entity_type, "id": args.entity_id},
+        "data": {"amount": args.amount},
+    }
+    # Sort keys so the bytes are stable -- the signature covers exactly these.
+    return json.dumps(envelope, sort_keys=True).encode("utf-8")
+
+
+def _send(args: argparse.Namespace, secret: str, event_id: str) -> int:
+    body = _build_body(args, event_id)
+    timestamp = int(time.time()) + args.skew
+    headers = {
+        "Content-Type": "application/json",
+        SIGNATURE_HEADER: f"t={timestamp},v1={expected_signature(secret, timestamp, body)}",
+    }
+    if args.idempotency_key is not None:
+        headers["Idempotency-Key"] = args.idempotency_key
+
+    request = urllib.request.Request(  # noqa: S310 (fixed localhost URL, not user-driven)
+        f"{args.url}/v1/webhooks/{args.source}",
+        data=body,
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request) as response:  # noqa: S310
+            print(f"  {response.status} {response.read().decode()}")
+            return int(response.status)
+    except urllib.error.HTTPError as exc:
+        # A 4xx is an expected outcome here (e.g. --skew to demo a stale 401),
+        # not a script failure, so report it rather than raising.
+        print(f"  {exc.code} {exc.read().decode()}")
+        return int(exc.code)
+
+
+def main() -> int:
+    args = _parse_args()
+
+    secret_value = get_settings().secret_for_source(args.source)
+    if secret_value is None:
+        print(
+            f"no secret configured for source {args.source!r}; add it to WEBHOOK_SECRETS in .env",
+            file=sys.stderr,
+        )
+        return 1
+    secret = secret_value.get_secret_value()
+
+    # A shared event id so repeated sends are the *same* event, not new ones --
+    # that is what exercises the dedup constraint (FR-5).
+    event_id = args.event_id or f"evt_{int(time.time())}"
+    print(f"POST {args.url}/v1/webhooks/{args.source}  (event id: {event_id})")
+    for i in range(1, args.count + 1):
+        print(f"delivery {i}/{args.count}:")
+        _send(args, secret, event_id)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

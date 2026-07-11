@@ -48,6 +48,11 @@ docker compose up --build
 That brings up four services in order: `postgres` → `migrate` (applies migrations, then exits) →
 `app` and `worker`.
 
+There's a `Makefile` wrapping both ways to run it — `make` on its own lists every target. The
+Docker stack is `make up` / `make down`; the local flow is below. Once it's running, POST a
+signed demo event with `make send` (`make send ARGS="--count 2"` to see idempotency: one row, two
+`200`s, the second a duplicate).
+
 Check it's up:
 
 ```bash
@@ -73,17 +78,19 @@ docker compose up --scale worker=4
 
 ## Local development
 
-Without Docker for the app itself (you still need Postgres somewhere):
+Run the app and worker in your venv, with Postgres in a container (you still need Postgres
+somewhere). The `make` targets on the left are exactly the commands on the right:
 
 ```bash
-uv sync --extra dev                 # creates .venv, installs everything
-docker compose up -d postgres       # or point DATABASE_URL at your own
+make install        # uv sync
+make db-up          # docker compose up -d postgres   (or point DATABASE_URL at your own)
+make migrate        # uv run alembic upgrade head
 
-uv run alembic upgrade head         # apply migrations
-
-uv run uvicorn webhook_receiver.api.app:create_app --factory --reload
-uv run python -m webhook_receiver.worker.main    # in a second terminal
+make dev            # uv run uvicorn webhook_receiver.api.app:create_app --factory --reload
+make worker         # uv run python -m webhook_receiver.worker.main   (a second terminal)
 ```
+
+Then, from a third terminal, `make send` posts a correctly signed event to the running app.
 
 ### Tests
 

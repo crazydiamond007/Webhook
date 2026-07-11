@@ -76,6 +76,8 @@ ignore = [
 "tests/**" = ["S101", "S105", "S106", "S311", "ARG001", "ARG002"]
 # Alembic generates its own conventions.
 "migrations/**" = ["N999", "ARG001"]
+# A CLI helper: printing to the terminal is the whole point.
+"scripts/**" = ["T20"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Path"]
@@ -85,7 +87,7 @@ extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src", "tests", "migrations"]
+files = ["src", "tests", "migrations", "scripts"]
 plugins = ["pydantic.mypy"]
 warn_unreachable = true
 warn_unused_ignores = true
@@ -116,6 +118,11 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["src/webhook_receiver/domain", "src/webhook_receiver/services"]
+# SQLAlchemy's async layer drives our coroutines across greenlet switches
+# (`greenlet_spawn`); without this, coverage silently drops the lines that resume
+# after an `await session.execute(...)` and reports a file as half-covered when
+# an integration test provably ran all of it.
+concurrency = ["greenlet"]
 
 [tool.coverage.report]
 # SPEC 6.10: coverage stays at or above 85% on domain/ and services/.
