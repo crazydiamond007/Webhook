@@ -324,11 +324,17 @@ network; locally the worker's port is ephemeral so that `make up-scale` (four wo
 | **Event types** | `balance.credited`, `balance.debited`, `balance.snapshot` |
 | **Guarantees** | Signature + timestamp verification, deduplicated ingestion, exactly-once effects, per-entity serialisation, out-of-order handling, bounded retries with jittered backoff, dead-lettering, idempotent replay |
 
-Not built yet: the load test and the deploy (Day 4 of `SPEC.md` §7). The headline number — ingestion
-p99 and sustained throughput under 10,000 duplicate deliveries — is not measured yet, so it is not
-claimed here.
+**Deployment:** [`infra/`](infra/) holds Terraform for Fargate + RDS. It is **validated but never
+applied** — there's no AWS account behind it, and `terraform plan` has never run. It's there because
+"how would you deploy this?" deserves an answer you can review line by line, and a README claiming a
+deployment that never happened would be the one untrue thing in this repo.
 
 ## Further reading
 
-- [`SPEC.md`](SPEC.md) — requirements, data model, architecture
-- [`docs/adr/`](docs/adr/) — architecture decision records
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the design, and the five constraints that do the work
+- [`docs/load-test.md`](docs/load-test.md) — the number, the method, and where the ceiling actually is
+- [`docs/runbook.md`](docs/runbook.md) — what to do when it's 3am and you've been paged
+- [`docs/database-objects.md`](docs/database-objects.md) — the views, triggers, and guards, with SQL to try them
+- [`docs/adr/`](docs/adr/) — eight architecture decision records, including the things I *didn't* build
+- [`infra/README.md`](infra/README.md) — the deployment, what it costs, and what's missing
+- [`SPEC.md`](SPEC.md) — the original requirements
