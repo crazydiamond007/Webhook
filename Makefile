@@ -7,7 +7,7 @@
 # `make` on its own prints this list.
 
 .DEFAULT_GOAL := help
-.PHONY: help install env db-up db-down migrate dev worker send balance demo \
+.PHONY: help install env db-up db-down psql db-url migrate dev worker send balance demo \
         up up-scale down logs test test-unit lint types check fmt
 
 # Compose reads .env automatically; the local targets rely on Settings doing the
@@ -34,6 +34,18 @@ db-up: ## Start only Postgres (for the local app to talk to)
 
 db-down: ## Stop Postgres and delete its data volume
 	$(COMPOSE) down -v
+
+psql: ## Open a psql shell on the running database
+	$(COMPOSE) exec postgres psql -U webhook -d webhook_receiver
+
+db-url: ## Print the connection settings (for DataGrip, psql, anything)
+	@echo "host      localhost"
+	@echo "port      5432"
+	@echo "database  webhook_receiver"
+	@echo "user      webhook"
+	@echo "password  webhook"
+	@echo "jdbc      jdbc:postgresql://localhost:5432/webhook_receiver"
+	@echo "psql      postgresql://webhook:webhook@localhost:5432/webhook_receiver"
 
 migrate: ## Apply migrations to the database in DATABASE_URL
 	uv run alembic upgrade head

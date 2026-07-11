@@ -107,6 +107,28 @@ make worker         # uv run python -m webhook_receiver.worker.main   (a second 
 
 Then, from a third terminal, `make send` posts a correctly signed event to the running app.
 
+### Connecting a SQL client (DataGrip, psql, pgAdmin)
+
+Postgres is published on the host's port `5432`, so any client can reach it while the stack is up.
+There's nothing extra to create — `make db-url` prints these:
+
+| Field | Value |
+|---|---|
+| Host | `localhost` |
+| Port | `5432` |
+| Database | `webhook_receiver` |
+| User | `webhook` |
+| Password | `webhook` |
+
+JDBC: `jdbc:postgresql://localhost:5432/webhook_receiver`. Local-dev credentials only — they're set
+in `docker-compose.yml` and guard nothing.
+
+`make up` migrates the database for you. **`make db-up` does not** — run `make migrate` after it, or
+your client will connect to a database with no tables. `make psql` opens a shell on it directly.
+
+If port 5432 is already taken by a Postgres you run natively, change the *host* side of the mapping
+in `docker-compose.yml` (`"5433:5432"`) and point the client at 5433.
+
 ### Tests
 
 ```bash
