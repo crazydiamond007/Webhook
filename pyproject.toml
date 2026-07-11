@@ -2,7 +2,11 @@
 name = "webhook-receiver"
 version = "0.1.0"
 description = "Idempotent webhook receiver: at-least-once delivery, exactly-once effects."
+readme = "README.md"
 requires-python = "==3.12.*"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Narcisse Kabongo Ngandu", email = "narcissekabongongandu@gmail.com" }]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",

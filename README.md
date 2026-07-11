@@ -338,3 +338,7 @@ deployment that never happened would be the one untrue thing in this repo.
 - [`docs/adr/`](docs/adr/) — eight architecture decision records, including the things I *didn't* build
 - [`infra/README.md`](infra/README.md) — the deployment, what it costs, and what's missing
 - [`SPEC.md`](SPEC.md) — the original requirements
+
+## License
+
+[MIT](LICENSE). © 2026 Narcisse Kabongo Ngandu.
