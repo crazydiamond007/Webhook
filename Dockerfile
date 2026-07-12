@@ -24,8 +24,18 @@ WORKDIR /app
 
 # Dependencies change far less often than source. Installing them from the
 # lockfile alone keeps this layer cached across ordinary code edits.
+#
+# The cache mount carries an explicit `id`. BuildKit defaults it to the target
+# path and is happy without one; Railway's Dockerfile parser is not, and rejects
+# the flag outright ("missing an id argument"). It is a plain literal because
+# Railway only *persists* a cache whose id is `s/<service id>-...` and forbids
+# variables in the id -- and `app` and `worker` are two different services sharing
+# this one Dockerfile, so no literal can be right for both. So Railway parses this
+# and then ignores the cache, which costs nothing: the layer cache above already
+# covers the common case, and this mount only earns its keep on a local rebuild
+# after the lockfile moves.
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 COPY src/ ./src/
@@ -35,7 +45,7 @@ COPY alembic.ini ./
 # build the project without it. Copied here rather than into the layer above, so
 # it cannot invalidate the cached dependency install.
 COPY LICENSE ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # --- Stage 2: runtime ---------------------------------------------------------
