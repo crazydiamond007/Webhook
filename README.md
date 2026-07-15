@@ -1,10 +1,15 @@
 # Idempotent Webhook Receiver
 
+[![CI](https://github.com/crazydiamond007/web/actions/workflows/ci.yml/badge.svg)](https://github.com/crazydiamond007/web/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey.svg)](#requirements)
+
 A service that receives provider webhooks (Stripe-style) and processes each one **exactly once**,
 even when the provider delivers the same event several times.
 
 Webhook providers guarantee *at-least-once* delivery. They resend an event if they don't get a `2xx`
-back in time — including when we already processed it and only the acknowledgement got lost. This
+back in time - including when we already processed it and only the acknowledgement got lost. This
 service accepts those redeliveries safely: it stores the event, returns `200` immediately, and a
 background worker applies the business effect exactly once.
 
@@ -15,7 +20,7 @@ The design, requirements, and data model live in [`SPEC.md`](SPEC.md).
 > **20,910 duplicate deliveries under concurrency. 2,466 distinct events. 2,466 ledger entries.
 > Zero double-processing. Ingestion p99 of 26 ms at 350 deliveries/s.**
 
-88% of that traffic was a redelivery of something already stored — and a redelivery costs exactly as
+88% of that traffic was a redelivery of something already stored - and a redelivery costs exactly as
 much as a first delivery (p99 26 ms vs 27 ms), because deduplication is a single `INSERT ... ON
 CONFLICT`, not a lookup followed by a decision. If the duplicate path were the slow one, a provider
 retrying *during* an incident would deepen the incident.
@@ -27,9 +32,9 @@ Reproduce it with `make load`. Method, the full latency curve, and where the cei
 
 | | |
 |---|---|
-| **Receives** | `POST /v1/webhooks/{source}` — verifies the HMAC-SHA256 signature, stores the event, returns `200`. Ingestion never waits on processing. |
+| **Receives** | `POST /v1/webhooks/{source}` - verifies the HMAC-SHA256 signature, stores the event, returns `200`. Ingestion never waits on processing. |
 | **Deduplicates** | A redelivered event is recognised by `(source, idempotency_key)` and inserts no new row. |
-| **Processes** | A background worker picks up stored events and applies the business effect — in the demo domain, a ledger entry against an account balance. |
+| **Processes** | A background worker picks up stored events and applies the business effect - in the demo domain, a ledger entry against an account balance. |
 | **Applies once** | Each event produces at most one effect, so reprocessing or replaying it changes nothing. |
 | **Retries** | Transient failures are retried with exponential backoff and jitter; permanent failures go straight to a dead-letter queue. |
 | **Replays** | An authenticated admin endpoint can reprocess events or drain the DLQ. |
@@ -40,13 +45,13 @@ Reproduce it with `make load`. Method, the full latency curve, and where the cei
 | | Version | Needed for |
 |---|---|---|
 | **Docker** + Compose | any current | Running the stack, and the integration tests |
-| **Python** | **3.12** (exactly — pinned in `.python-version`) | Local development |
+| **Python** | **3.12** (exactly - pinned in `.python-version`) | Local development |
 | **uv** | **0.11+** | Dependency management. `uv.lock` is lockfile revision 3; older uv cannot read it |
 | **PostgreSQL** | **16** | Provided by Compose; only needed separately if you run without Docker |
 
 Install [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-`uv` will fetch Python 3.12 for you — no system Python needed.
+`uv` will fetch Python 3.12 for you - no system Python needed.
 
 ---
 
@@ -61,7 +66,7 @@ docker compose up --build
 That brings up four services in order: `postgres` → `migrate` (applies migrations, then exits) →
 `app` and `worker`.
 
-There's a `Makefile` wrapping both ways to run it — `make` on its own lists every target. The
+There's a `Makefile` wrapping both ways to run it - `make` on its own lists every target. The
 Docker stack is `make up` / `make down`; the local flow is below.
 
 Once it's up, `make demo` sends a signed event twice and then delivers two snapshots out of order,
@@ -96,7 +101,7 @@ Tear down, including the database volume:
 docker compose down -v
 ```
 
-Run more workers — they coordinate through the database, so this is safe:
+Run more workers - they coordinate through the database, so this is safe:
 
 ```bash
 docker compose up --scale worker=4
@@ -123,7 +128,7 @@ Then, from a third terminal, `make send` posts a correctly signed event to the r
 ### Connecting a SQL client (DataGrip, psql, pgAdmin)
 
 Postgres is published on your host while the stack is up, so any client can reach it. There's nothing
-extra to create — run **`make db-url`** and it prints exactly what to paste in:
+extra to create - run **`make db-url`** and it prints exactly what to paste in:
 
 | Field | Value |
 |---|---|
@@ -133,7 +138,7 @@ extra to create — run **`make db-url`** and it prints exactly what to paste in
 | User | `webhook` |
 | Password | `webhook` |
 
-Local-dev credentials only — they're set in `docker-compose.yml` and guard nothing. `make psql` opens
+Local-dev credentials only - they're set in `docker-compose.yml` and guard nothing. `make psql` opens
 a shell on the same database.
 
 **If something already owns port 5432, change the port in `DATABASE_URL` and nothing else.** The
@@ -142,7 +147,7 @@ move together.
 
 That clash is worth knowing about, because it does not announce itself. A natively installed Postgres
 (common on WSL and Homebrew) keeps 5432, Docker still reports the port as published, your connection
-still succeeds — and it lands on *the other server*, which answers:
+still succeeds - and it lands on *the other server*, which answers:
 
 ```
 asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "webhook"
@@ -151,11 +156,11 @@ asyncpg.exceptions.InvalidPasswordError: password authentication failed for user
 That is not a credentials bug. It means you are talking to the wrong database. Set the port in
 `DATABASE_URL` to `5433`, re-run `make db-up`, and it goes away.
 
-`make up` migrates the database for you. **`make db-up` does not** — run `make migrate` after it, or
+`make up` migrates the database for you. **`make db-up` does not** - run `make migrate` after it, or
 your client will connect to a database with no tables.
 
 **Keeping the database up without the app.** `postgres` is `restart: unless-stopped`, so once started
-it comes back on its own whenever Docker does — after a reboot, or a Docker Desktop restart. Start it
+it comes back on its own whenever Docker does - after a reboot, or a Docker Desktop restart. Start it
 once with `make db-up` and your SQL client can reach it from then on without the app or worker
 running at all. (On Windows this needs *Start Docker Desktop when you log in* enabled in Docker
 Desktop's settings; `make down` still stops it deliberately, and it stays stopped.)
@@ -183,17 +188,17 @@ uv run mypy                       # runs in --strict mode
 Migration `0003` adds views, functions, triggers and a retention procedure. `make report` shows the
 useful ones:
 
-**Views** — the operator's read model. None of them exposes `payload` or `headers`.
+**Views** - the operator's read model. None of them exposes `payload` or `headers`.
 
 | | |
 |---|---|
-| `v_queue_health` | Are we falling behind? Keeps `due_now` separate from `waiting_on_backoff` — those are different incidents. |
+| `v_queue_health` | Are we falling behind? Keeps `due_now` separate from `waiting_on_backoff` - those are different incidents. |
 | `v_account_reconciliation` | `balance_minor` vs `SUM(ledger_entry)`. **`drift` must always be 0.** This is NFR-1 as a query. |
 | `v_dlq_open` | Everything still needing a human, oldest first. |
 | `v_event_overview` | One row per event with its last outcome and whether it produced an effect. |
 | `v_processing_outcomes` | Where the time goes, and what fails. |
 
-**Triggers** — invariants the application cannot defend, because the application isn't in the room
+**Triggers** - invariants the application cannot defend, because the application isn't in the room
 when someone has a `psql` prompt open:
 
 - `ledger_entry` is **append-only**. UPDATE is refused outright (a correction is a compensating
@@ -208,14 +213,14 @@ when someone has a `psql` prompt open:
 Every object, with copy-pasteable SQL to exercise it, is in
 [`docs/database-objects.md`](docs/database-objects.md).
 
-**Procedure**: `CALL sp_purge_history('90 days')` (or `make purge KEEP='30 days'`) — retention. It
+**Procedure**: `CALL sp_purge_history('90 days')` (or `make purge KEEP='30 days'`) - retention. It
 never deletes an event that produced an effect, because `ledger_entry.event_id` is `ON DELETE
 CASCADE` and a naive sweep would take the ledger with it.
 
 Deliberately **not** here: a trigger maintaining `account.balance` (the effect would then live half
 in Python and half in a trigger, and double-apply), and a SQL version of the advisory-lock key (it
 would use a different hash from the Python one, take a different lock, and corrupt a balance in
-silence — see ADR-0002).
+silence - see ADR-0002).
 
 ### Migrations
 
@@ -232,7 +237,7 @@ uv run alembic upgrade head --sql                 # print SQL without connecting
 
 ## Configuration
 
-All settings come from environment variables. Copy [`.env.example`](.env.example) to `.env` — it
+All settings come from environment variables. Copy [`.env.example`](.env.example) to `.env` - it
 documents every option. There are no hard-coded thresholds in the code.
 
 **Required** (no defaults):
@@ -241,7 +246,7 @@ documents every option. There are no hard-coded thresholds in the code.
 |---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://webhook:webhook@localhost:5432/webhook_receiver` |
 | `ADMIN_API_KEY` | any long random string; guards the admin and replay endpoints |
-| `WEBHOOK_SECRETS` | `{"stripe":"whsec_..."}` — JSON map of source → HMAC signing key |
+| `WEBHOOK_SECRETS` | `{"stripe":"whsec_..."}` - JSON map of source → HMAC signing key |
 
 **Tunable** (sensible defaults shown):
 
@@ -296,7 +301,7 @@ no signing secret.
 | `GET /v1/admin/dlq` | The dead-letter queue. |
 | `POST /v1/admin/dlq/{id}/resolve` \| `/discard` | Triage an entry. Both are terminal. |
 | `POST /v1/admin/replay` | Re-process events, the DLQ, or a time range. |
-| `GET /metrics` | Prometheus. The **worker** serves its own on `:9100` — see below. |
+| `GET /metrics` | Prometheus. The **worker** serves its own on `:9100` - see below. |
 | `GET /healthz` \| `/readyz` | Liveness and readiness. |
 
 The admin routes never return `payload` or `headers`. It's a support tool, and a support tool that
@@ -324,25 +329,25 @@ network; locally the worker's port is ephemeral so that `make up-scale` (four wo
 | **Event types** | `balance.credited`, `balance.debited`, `balance.snapshot` |
 | **Guarantees** | Signature + timestamp verification, deduplicated ingestion, exactly-once effects, per-entity serialisation, out-of-order handling, bounded retries with jittered backoff, dead-lettering, idempotent replay |
 
-**Deployment:** [`docs/deploy-railway.md`](docs/deploy-railway.md) is the one you can actually run —
+**Deployment:** [`docs/deploy-railway.md`](docs/deploy-railway.md) is the one you can actually run -
 API, worker and Postgres from this repo, configured by [`railway.toml`](railway.toml) and
 [`railway.worker.toml`](railway.worker.toml).
 
-[`infra/`](infra/) holds Terraform for Fargate + RDS. It is **validated but never applied** — there's
+[`infra/`](infra/) holds Terraform for Fargate + RDS. It is **validated but never applied** - there's
 no AWS account behind it, and `terraform plan` has never run. It stays because "how would you deploy
 this properly?" deserves an answer you can review line by line, and a README claiming a deployment
 that never happened would be the one untrue thing in this repo.
 
 ## Further reading
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — the design, and the five constraints that do the work
-- [`docs/load-test.md`](docs/load-test.md) — the number, the method, and where the ceiling actually is
-- [`docs/runbook.md`](docs/runbook.md) — what to do when it's 3am and you've been paged
-- [`docs/database-objects.md`](docs/database-objects.md) — the views, triggers, and guards, with SQL to try them
-- [`docs/deploy-railway.md`](docs/deploy-railway.md) — deploying it for real, and the four ways it goes wrong
-- [`docs/adr/`](docs/adr/) — nine architecture decision records, including the things I *didn't* build
-- [`infra/README.md`](infra/README.md) — the deployment, what it costs, and what's missing
-- [`SPEC.md`](SPEC.md) — the original requirements
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) - the design, and the five constraints that do the work
+- [`docs/load-test.md`](docs/load-test.md) - the number, the method, and where the ceiling actually is
+- [`docs/runbook.md`](docs/runbook.md) - what to do when it's 3am and you've been paged
+- [`docs/database-objects.md`](docs/database-objects.md) - the views, triggers, and guards, with SQL to try them
+- [`docs/deploy-railway.md`](docs/deploy-railway.md) - deploying it for real, and the four ways it goes wrong
+- [`docs/adr/`](docs/adr/) - nine architecture decision records, including the things I *didn't* build
+- [`infra/README.md`](infra/README.md) - the deployment, what it costs, and what's missing
+- [`SPEC.md`](SPEC.md) - the original requirements
 
 ## License
 

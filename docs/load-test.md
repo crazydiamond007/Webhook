@@ -20,7 +20,7 @@ Three deliberate choices make that question hard to pass by accident:
 
 **Every event is delivered twice, back to back.** That is what an at-least-once provider does when our
 `200` does not reach it in time. So ~88% of the traffic here is a redelivery of something already
-stored — the exact condition the whole service exists to survive.
+stored - the exact condition the whole service exists to survive.
 
 **Only 50 accounts.** Spreading 20,000 events over 20,000 accounts would prove nothing: nothing would
 ever contend, `pg_advisory_xact_lock` would never be taken under pressure, and the test would pass on
@@ -46,7 +46,7 @@ reported by the load generator. A load test that grades its own homework is not 
 
 The last three are not the same test, and a broken system could pass any one of them alone. The
 fourth counts rows. The fifth checks the cached balance agrees with those rows. The sixth pins the
-**absolute number** — an account's balance must be exactly `100 × (its distinct events)` — which is
+**absolute number** - an account's balance must be exactly `100 × (its distinct events)` - which is
 the only one that would catch a double-application *and* a compensating bug that hid it.
 
 ## Latency
@@ -60,7 +60,7 @@ the only one that would catch a double-application *and* a compensating bug that
 
 **A redelivery costs the same as a first delivery.** That is not a footnote. If the duplicate path
 were slower, then a provider hammering us with retries *during* an incident would make the incident
-worse — the failure mode would be self-amplifying. It is the same speed because deduplication is a
+worse - the failure mode would be self-amplifying. It is the same speed because deduplication is a
 single `INSERT ... ON CONFLICT DO NOTHING`, not a lookup followed by a decision.
 
 NFR-2's budget is p99 < 50 ms. **26 ms, met.**
@@ -95,7 +95,7 @@ JSON parsing, and one round-trip, all in one single-threaded event loop. Postgre
 the worker tier is asleep.
 
 This is worth stating plainly because ADR-0001 accepted "throughput bounded by Postgres" as the price
-of using it as the queue. **At this scale that price is not being paid** — we hit the application
+of using it as the queue. **At this scale that price is not being paid** - we hit the application
 ceiling first, by a factor of five. The trade-off ADR-0001 worried about is real, but it is not yet
 the binding constraint.
 
@@ -108,7 +108,7 @@ because `prometheus_client` keeps its registry **per process**: a four-worker co
 `/metrics` from whichever worker happened to answer the scrape and silently under-report by ~4×. You
 would have bought throughput with the instrumentation that tells you whether the throughput is real.
 
-One process per container keeps each container a clean scrape target — which is exactly the shape
+One process per container keeps each container a clean scrape target - which is exactly the shape
 Fargate and Kubernetes want anyway. The app tier is stateless (NFR-4), so it scales horizontally
 behind a load balancer with no coordination at all.
 
@@ -118,7 +118,7 @@ but the database, and they drained the entire backlog in one second.
 ## Caveats, stated rather than buried
 
 - **One laptop.** The load generator, four workers, the app, and Postgres all share the same CPU
-  under WSL2. The absolute numbers would be higher on separate hosts — but the *correctness* result
+  under WSL2. The absolute numbers would be higher on separate hosts - but the *correctness* result
   is unaffected by that, and the correctness result is the point.
 - **The ~390/s ceiling is this machine's**, not the design's. It measures one uvicorn process on one
   contended core.

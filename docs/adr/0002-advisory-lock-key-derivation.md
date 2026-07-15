@@ -21,10 +21,10 @@ only evidence is a wrong number, discovered later, by someone else.
 ## Considered Options
 
 1. **Hash in Python** with `blake2b`, truncated to 8 bytes, read as a signed int.
-2. **Hash in Postgres** with `hashtext($1)` — the obvious choice, and what most examples show.
+2. **Hash in Postgres** with `hashtext($1)` - the obvious choice, and what most examples show.
 3. **Two-key form**, `pg_advisory_xact_lock(classid, objid)`, with a per-entity-type `classid` and
    a hash of the id as `objid` (two 32-bit ints).
-4. **A lock table** — a real row per entity, taken with `SELECT ... FOR UPDATE`.
+4. **A lock table** - a real row per entity, taken with `SELECT ... FOR UPDATE`.
 
 ## Decision Outcome
 
@@ -33,7 +33,7 @@ signed.
 
 **`hashtext` is not part of Postgres' contract.** It is an internal function; its output is not
 documented as stable across major versions, and the hash functions behind it have been changed
-before. That is normally harmless — nobody persists a `hashtext` value — but here the value *is* the
+before. That is normally harmless - nobody persists a `hashtext` value - but here the value *is* the
 lock, and the window that matters is a **rolling upgrade**: for the minutes during which some
 workers talk to a PG 16 primary and others to a PG 17 one, the same account can hash two ways. This
 is the worst class of bug we could ship: silent, intermittent, load-dependent, and invisible to
@@ -49,7 +49,7 @@ reasoned about in a unit test.
 
 ### Rejected
 
-* **Option 3 (`classid`, `objid`)** is a real improvement on collisions — the entity type gets its
+* **Option 3 (`classid`, `objid`)** is a real improvement on collisions - the entity type gets its
   own 32-bit namespace, so unrelated types cannot collide at all. But `objid` is then only 32 bits,
   and a 32-bit space has a ~50% collision probability at about 77,000 entities (birthday bound).
   Trading a 2^64 space for a 2^32 one to gain type separation is a bad trade when the 2^64 space
@@ -62,12 +62,12 @@ reasoned about in a unit test.
 ### Consequences
 
 * Good: the lock key is deterministic, version-independent, and pinned by a test.
-* Good: `advisory_lock_key()` is a pure function — no session, no I/O — so the interesting property
+* Good: `advisory_lock_key()` is a pure function - no session, no I/O - so the interesting property
   (stability) is asserted in a unit test rather than inferred from an integration one.
 * Bad: **hash collisions are possible.** Two unrelated entities can map to one key and serialise
   against each other. At 2^64 keys this is negligible, and the consequence is bounded: the system is
-  *slower*, never *wrong*. The inverse trade — a scheme that never blocks unnecessarily but can miss
-  a real conflict — would be unacceptable, so this is the direction to err in.
+  *slower*, never *wrong*. The inverse trade - a scheme that never blocks unnecessarily but can miss
+  a real conflict - would be unacceptable, so this is the direction to err in.
 * Bad: the key is opaque in `pg_locks`. An operator looking at a blocked lock sees an integer, not
   an account. Mitigated by logging `entity_type`, `entity_id`, **and** the derived key together on
   contention, so the two can be joined from the logs.

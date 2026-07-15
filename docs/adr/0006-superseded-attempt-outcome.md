@@ -16,7 +16,7 @@ forward, "the stale event is recorded as **superseded** rather than applied."
 
 None of the three permitted outcomes can express that. The attempt did not fail, so neither error
 value is honest. And it did not apply an effect, so `succeeded` would make the attempt log claim a
-`ledger_entry` exists when it does not — the two tables an operator cross-references during an
+`ledger_entry` exists when it does not - the two tables an operator cross-references during an
 incident would disagree.
 
 This is a genuine gap in the spec, not an implementation preference.

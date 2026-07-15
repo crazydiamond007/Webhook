@@ -11,7 +11,7 @@ consulted: SPEC.md §0, §4, NFR-4, NFR-7
 
 Ingestion accepts a webhook, persists it, and returns `200` immediately; a worker processes it later
 (SPEC §0, "accept-and-queue"). That split needs a queue. The obvious candidates are a purpose-built
-broker — SQS, RabbitMQ, Redis, Kafka — or the Postgres instance we already need for the event and
+broker - SQS, RabbitMQ, Redis, Kafka - or the Postgres instance we already need for the event and
 effect tables.
 
 The requirement that decides it is **NFR-4**: *"A worker that dies mid-processing leaves no
@@ -23,17 +23,17 @@ Processing an event does two things that must agree:
 2. Record that the event is done (set `webhook_event.status = 'succeeded'`, ack the queue).
 
 If those two commit to *different systems*, there is a window between them. A crash inside that
-window leaves the effect applied and the event un-acked — so the event is redelivered and the effect
-is applied twice — or the event acked and the effect missing, so it is silently lost. This is the
+window leaves the effect applied and the event un-acked - so the event is redelivered and the effect
+is applied twice - or the event acked and the effect missing, so it is silently lost. This is the
 dual-write problem, and no amount of careful ordering removes it. Ordering only chooses **which** of
 the two failures you get.
 
 ## Considered Options
 
-1. **Postgres as the queue** — `SELECT ... FOR UPDATE SKIP LOCKED` over a `status`/`next_attempt_at`
+1. **Postgres as the queue** - `SELECT ... FOR UPDATE SKIP LOCKED` over a `status`/`next_attempt_at`
    index.
 2. **A dedicated broker (SQS/Rabbit/Redis)** plus the transactional-outbox pattern.
-3. **A dedicated broker, no outbox** — ack after the effect commits, accept the window.
+3. **A dedicated broker, no outbox** - ack after the effect commits, accept the window.
 4. **Kafka**, partitioned by entity id, using partition affinity for ordering.
 
 ## Decision Outcome
@@ -42,7 +42,7 @@ Chosen: **option 1, Postgres as the queue.**
 
 The effect insert and the queue-state update are the same transaction against the same database.
 There is no window. Either both commit or neither does, enforced by the one thing already responsible
-for our durability guarantee. A worker killed mid-flight — `SIGKILL`, OOM, a severed network — leaves
+for our durability guarantee. A worker killed mid-flight - `SIGKILL`, OOM, a severed network - leaves
 the row exactly as it was, its advisory lock released by the transaction abort, and the event is
 picked up again on the next poll with no cleanup path to get wrong.
 
@@ -60,7 +60,7 @@ transaction:
 Note the second row. It is the reason a broker does not simply drop in: SQS gives you at-most-one
 *consumer per message*, which is not the property we need. Two workers holding two **different**
 events for the **same** account will both proceed, and both will read the same balance. `SKIP LOCKED`
-does not help — the rows differ, so neither is skipped. Per-entity serialisation is a *database* lock,
+does not help - the rows differ, so neither is skipped. Per-entity serialisation is a *database* lock,
 not a queue feature, and once you need the database for that, the broker is buying less than it costs.
 
 ### Why not the alternatives
@@ -73,7 +73,7 @@ for free. Right call when you have multiple services consuming the stream. We ha
 
 **Option 3 (broker, no outbox).** This is the dual-write problem accepted as a design. Concretely:
 the worker inserts the `ledger_entry`, commits, then crashes before acking SQS. The message
-reappears, the ledger row is re-inserted, and the account is credited twice — the precise bug this
+reappears, the ledger row is re-inserted, and the account is credited twice - the precise bug this
 service exists to prevent. Rejected.
 
 **Option 4 (Kafka).** Partitioning by entity id gives ordering per partition without an advisory

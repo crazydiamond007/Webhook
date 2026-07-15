@@ -23,7 +23,7 @@ Docker Compose had concealed this completely, and did so for four days:
   accepting connections before the worker's first poll.
 - `restart: unless-stopped` restarted the worker forever if it ever did die.
 
-Both of those are Compose-specific. A platform with neither — which is most of them — turns the same
+Both of those are Compose-specific. A platform with neither - which is most of them - turns the same
 code into an outage.
 
 ## Decision Drivers
@@ -35,7 +35,7 @@ code into an outage.
   `v_queue_health`, or from a customer.
 - **Restart budgets are finite.** Railway's `restartPolicyMaxRetries` defaults to 10, and Kubernetes
   backs off to `CrashLoopBackOff`. A worker that crashes on every poll during a 60-second failover
-  burns its entire budget in seconds and is then *permanently* dead — long after the database has
+  burns its entire budget in seconds and is then *permanently* dead - long after the database has
   recovered. The blip is transient; the consequence is not.
 - **But a bug must still be loud.** The opposite error is a loop that swallows everything and spins
   forever on a `TypeError`, burying the stack trace under a million identical log lines.
@@ -69,11 +69,11 @@ Three things fall out of reusing the existing machinery rather than writing a re
 
 - **The jitter is not decoration.** When a database comes back, *every* worker in the fleet is
   sitting in this branch. A fixed delay would have all of them reconnect on the same tick and
-  re-floor a server that has only just got to its feet. The variance is the point — the same
+  re-floor a server that has only just got to its feet. The variance is the point - the same
   argument as ADR-0005, applied to the database instead of a downstream.
 - **The wait is interruptible.** It waits on the shutdown `Event`, not `asyncio.sleep`. A worker
   sitting in a 300-second backoff must still honour a SIGTERM inside the platform's termination
-  grace period, or it gets SIGKILLed — and a worker killed mid-transaction is the one thing NFR-4
+  grace period, or it gets SIGKILLed - and a worker killed mid-transaction is the one thing NFR-4
   promises cannot happen.
 - **"Unclassified is fatal" is the same rule as SPEC §6.6**, which says an unclassified *event*
   failure is dead-lettered rather than retried. Same reasoning, different blast radius: we do not
@@ -87,7 +87,7 @@ what happened. The service degrades the way it should: ingestion keeps accepting
 the moment they are written), processing pauses, and the queue drains when the database returns.
 
 **Bad.** The worker will now sit in a backoff loop indefinitely against a database that is never
-coming back — a deleted instance, a revoked credential, a DSN typo'd at deploy time. It logs every
+coming back - a deleted instance, a revoked credential, a DSN typo'd at deploy time. It logs every
 attempt, but it does not exit, so a platform watching only for a crashed process sees a healthy one.
 This is a deliberate trade: `due_now` climbing in `v_queue_health` is the signal, and it is the same
 signal that catches every other reason the queue stops draining. Alerting on process liveness was
@@ -102,7 +102,7 @@ The first Railway deploy found the other half of this, and it is worth separatin
 the obvious fix is the wrong one.
 
 The migration runs as the **app's** pre-deploy step. The worker is a different service, and the two
-deploy *concurrently* — so on a cold start the worker gets there first and finds an empty database.
+deploy *concurrently* - so on a cold start the worker gets there first and finds an empty database.
 Its first poll raised `42P01` (undefined_table), which `is_retryable` correctly refuses to retry,
 so the worker died. Three times, on the real deploy, before the migration landed and a restart stuck.
 
@@ -115,13 +115,13 @@ before the poll loop: it waits for the table to appear, and only then starts pol
 has not appeared *yet* is a migration in flight. A table that disappears *later* is still fatal.
 
 It is bounded (`schema_wait_timeout_seconds`, default 180s) and fatal at the bound, because a schema
-that never arrives is a broken deployment — a typo'd DSN, a pre-deploy command that was never wired
-up — and a worker that waited for it forever would be one more process quietly doing nothing.
+that never arrives is a broken deployment - a typo'd DSN, a pre-deploy command that was never wired
+up - and a worker that waited for it forever would be one more process quietly doing nothing.
 
 And it is a **steady poll, not a backoff**. The first draft reused `next_delay_seconds`, and the
 worker duly slept for a minute while the schema sat there waiting for it: by the sixth attempt the
 ceiling is 64 seconds. Backoff exists to stop a fleet stampeding a struggling downstream. Nothing
-here is struggling and nothing is being stampeded — `to_regclass` is one catalogue lookup, and the
+here is struggling and nothing is being stampeded - `to_regclass` is one catalogue lookup, and the
 thing being waited for happens exactly once. Reaching for the backoff was pattern-matching, not
 thinking.
 
@@ -135,5 +135,5 @@ applied either. A DNS name that stops resolving for fifteen seconds would have d
 event in flight.
 
 That is the honest reason this ADR exists. The retry taxonomy was written for the *downstream* and
-was never once pointed at the database the worker depends on — and the one deployment target that
+was never once pointed at the database the worker depends on - and the one deployment target that
 would have exposed it, Compose, was configured to make sure it never could.

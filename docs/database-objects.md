@@ -2,7 +2,7 @@
 
 Everything migration `0003` adds, with a query you can paste into DataGrip to exercise it.
 
-Connect with `make db-url` (host `localhost`, port from your `.env` — **5433** on this machine,
+Connect with `make db-url` (host `localhost`, port from your `.env` - **5433** on this machine,
 database `webhook_receiver`, user/password `webhook`/`webhook`).
 
 To list them all from a SQL client:
@@ -22,7 +22,7 @@ SELECT tgname, tgrelid::regclass AS on_table FROM pg_trigger WHERE NOT tgisinter
 None of them exposes `payload` or `headers`. A view is the easiest possible way to leak a request
 body into a support ticket.
 
-### `v_queue_health` — are we falling behind?
+### `v_queue_health` - are we falling behind?
 
 One row. `due_now` is kept apart from `waiting_on_backoff` on purpose: a thousand events sitting out
 a retry delay is *not* an incident; a thousand events the workers cannot keep up with is.
@@ -34,12 +34,12 @@ SELECT * FROM v_queue_health;
 | column | meaning |
 |---|---|
 | `pending` | not yet processed |
-| `due_now` | pending **and** `next_attempt_at <= now()` — the real backlog |
-| `waiting_on_backoff` | pending but not due yet — a retry is scheduled |
+| `due_now` | pending **and** `next_attempt_at <= now()` - the real backlog |
+| `waiting_on_backoff` | pending but not due yet - a retry is scheduled |
 | `succeeded` / `dead_lettered` | terminal states |
 | `oldest_due_age` | how long the oldest due event has been waiting |
 
-### `v_account_reconciliation` — **the important one**
+### `v_account_reconciliation` - **the important one**
 
 `drift` must be **0 on every row, always**. It is the difference between what the account *says* its
 balance is and what the ledger can *prove*. A non-zero drift means an effect was applied twice, or
@@ -52,7 +52,7 @@ SELECT * FROM v_account_reconciliation;
 SELECT * FROM v_account_reconciliation WHERE drift <> 0;
 ```
 
-### `v_dlq_open` — what needs a human
+### `v_dlq_open` - what needs a human
 
 Open dead-letter entries only (`needs_review`, `replaying`), oldest first, with the event context.
 
@@ -60,10 +60,10 @@ Open dead-letter entries only (`needs_review`, `replaying`), oldest first, with 
 SELECT event_id, event_type, entity_id, attempts_made, status, age, reason FROM v_dlq_open;
 ```
 
-### `v_event_overview` — one row per event
+### `v_event_overview` - one row per event
 
 `has_effect` is the interesting column. An event that is `succeeded` with `has_effect = false` is
-**not a bug** — it is a superseded event (FR-10), correctly handled and correctly not applied.
+**not a bug** - it is a superseded event (FR-10), correctly handled and correctly not applied.
 
 ```sql
 SELECT id, event_type, status, last_outcome, attempts_recorded, has_effect FROM v_event_overview;
@@ -72,7 +72,7 @@ SELECT id, event_type, status, last_outcome, attempts_recorded, has_effect FROM 
 SELECT * FROM v_event_overview WHERE status = 'succeeded' AND NOT has_effect;
 ```
 
-### `v_processing_outcomes` — where the time goes
+### `v_processing_outcomes` - where the time goes
 
 ```sql
 SELECT * FROM v_processing_outcomes;
@@ -88,7 +88,7 @@ Prometheus histogram buckets *against* when they disagree.
 ### `fn_account_balance(external_ref text) -> bigint`
 
 The balance an account can **prove**, summed from the ledger, ignoring the cached column. Use it to
-*check* `account.balance_minor`, never as a substitute — this is O(rows) and the cache is O(1).
+*check* `account.balance_minor`, never as a substitute - this is O(rows) and the cache is O(1).
 
 ```sql
 SELECT fn_account_balance('acct_1');
@@ -106,7 +106,7 @@ SELECT fn_ledger_invariant_ok();
 ### `fn_queue_lag() -> interval`
 
 Age of the oldest event that is due and still waiting. **This**, not the pending count, is the
-number to alert on — it is the one a provider would notice.
+number to alert on - it is the one a provider would notice.
 
 ```sql
 SELECT fn_queue_lag();
@@ -134,7 +134,7 @@ CASCADE`, so a naive sweep would delete an old event, take its ledger row with i
 balance wrong. It only removes:
 
 - attempt rows for **succeeded** events older than the cutoff (a dead-lettered event keeps its full
-  history — that is the only thing an operator has to go on);
+  history - that is the only thing an operator has to go on);
 - events that produced **no effect** at all (duplicates, superseded snapshots).
 
 > **Careful when testing this in DataGrip.** `now()` in Postgres is the **transaction's start time**,
@@ -150,10 +150,10 @@ These enforce invariants the application **cannot**, because the application is 
 someone has a `psql` prompt open at 2am. Every one of them is tested by trying the forbidden thing in
 raw SQL.
 
-### `trg_ledger_entry_immutable` — the ledger is append-only
+### `trg_ledger_entry_immutable` - the ledger is append-only
 
 `uq_ledger_entry_event_id` stops an effect being applied *twice*. It does nothing about the row
-**afterwards** — and an `UPDATE` or `DELETE` would silently break `balance == SUM(ledger_entry)`,
+**afterwards** - and an `UPDATE` or `DELETE` would silently break `balance == SUM(ledger_entry)`,
 which is what every correctness claim rests on.
 
 ```sql
@@ -179,7 +179,7 @@ BEGIN;
 ROLLBACK;   -- or COMMIT, if you really meant it
 ```
 
-### `trg_processing_attempt_immutable` — the audit log cannot be rewritten
+### `trg_processing_attempt_immutable` - the audit log cannot be rewritten
 
 An audit log that can be edited is a rumour.
 
@@ -191,10 +191,10 @@ DELETE FROM processing_attempt WHERE id = 1;                        -- allowed
 `DELETE` **is** allowed here, unlike the ledger, and the asymmetry is deliberate: an attempt row is a
 **diagnostic** and has a retention policy; a ledger row is **money** and does not.
 
-### `trg_dlq_terminal_is_terminal` — a settled entry stays settled
+### `trg_dlq_terminal_is_terminal` - a settled entry stays settled
 
 `resolved` and `discarded` are terminal. The application already refuses this with a `409`; the
-trigger refuses it to everything the application is not — a script, an ad-hoc `UPDATE`, a future
+trigger refuses it to everything the application is not - a script, an ad-hoc `UPDATE`, a future
 service.
 
 ```sql

@@ -380,7 +380,7 @@ demo/retro note at the end of each day; those notes turn into the case-study nar
 **Global DoD (every slice):** typed, `ruff` and `mypy` clean, unit and integration tests for the
 slice, CI green, conventional commits, and an ADR for any new decision.
 
-### Day 0 (half a day, or the morning of Day 1) — Foundation
+### Day 0 (half a day, or the morning of Day 1) - Foundation
 - Repo scaffold with the layered layout; `pyproject`, `ruff`, `mypy`, `pytest` configured.
 - `docker-compose` (app + worker + postgres); multi-stage Dockerfile; non-root.
 - Alembic set up; first migration creates the full schema from §3.
@@ -389,14 +389,14 @@ slice, CI green, conventional commits, and an ADR for any new decision.
 - **DoD:** `docker compose up` boots; `/healthz` and `/readyz` respond; CI green on an empty
   test suite.
 
-### Day 1 — Ingestion slice (FR-1..FR-6, FR-21)
+### Day 1 - Ingestion slice (FR-1..FR-6, FR-21)
 - `POST /v1/webhooks/{source}`: signature verification (constant-time, timestamp tolerance),
   idempotent write, `200`.
 - **Tests:** unit for signature valid/invalid/stale; integration for duplicate delivery (one
   row, two `200`s) and a tampered body (`401`, zero rows).
 - **Demo:** POST the same event twice, get one `webhook_event` row and two `200`s.
 
-### Day 2 — Processing slice (FR-7..FR-10, part of NFR-1)
+### Day 2 - Processing slice (FR-7..FR-10, part of NFR-1)
 - Worker poll loop (`FOR UPDATE SKIP LOCKED`), per-entity advisory lock, effect ledger with the
   optimistic-version guard, and the demo balance handler.
 - **Tests:** concurrent same-entity events (serialised, one ledger row each, correct balance),
@@ -404,7 +404,7 @@ slice, CI green, conventional commits, and an ADR for any new decision.
 - **Demo:** fire concurrent duplicate and reordered events at one account, land on the correct
   balance with no double effect.
 
-### Day 3 — Resilience and operations slice (FR-11..FR-20)
+### Day 3 - Resilience and operations slice (FR-11..FR-20)
 - Error taxonomy, exponential backoff with full jitter (seedable), max attempts → DLQ, DLQ
   lifecycle, replay endpoint (idempotent), admin query API + auth, structlog, `/metrics`.
 - **Tests:** forced retryable failure (correct backoff schedule), forced non-retryable (straight
@@ -412,7 +412,7 @@ slice, CI green, conventional commits, and an ADR for any new decision.
 - **Demo:** send a poison event, watch it land in the DLQ after N attempts, fix it, replay it,
   see it resolved.
 
-### Day 4 — Proof, deploy, case study (NFR-1, NFR-2, NFR-10)
+### Day 4 - Proof, deploy, case study (NFR-1, NFR-2, NFR-10)
 - **Load test (`locust`):** replay ≥10,000 duplicate deliveries under concurrency; assert
   `count(ledger_entry) == count(distinct events)`; record ingestion p99 and throughput.
 - Deploy to AWS Fargate + RDS and capture the steps.

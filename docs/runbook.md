@@ -21,10 +21,10 @@ SELECT * FROM v_queue_health;
 
 The column that matters is **`due_now`**, not `pending`.
 
-- **`waiting_on_backoff` is high, `due_now` is low** — nothing is wrong with the queue. Those events
+- **`waiting_on_backoff` is high, `due_now` is low** - nothing is wrong with the queue. Those events
   failed and are sitting out a retry delay, exactly as designed. Go to §2: find out *why* they're
   failing.
-- **`due_now` is high and climbing** — the workers cannot keep up. This is a capacity problem.
+- **`due_now` is high and climbing** - the workers cannot keep up. This is a capacity problem.
 
 ```sql
 SELECT fn_queue_lag();   -- how far behind we are, as a duration. THIS is the number to alert on.
@@ -33,8 +33,8 @@ SELECT fn_queue_lag();   -- how far behind we are, as a duration. THIS is the nu
 `fn_queue_lag()` is the right alert, not the pending count: a thousand events processed in a second
 is fine, ten events stuck for an hour is not, and only the lag distinguishes them.
 
-**Fix:** add workers. They coordinate through the database — `SKIP LOCKED` keeps them off each
-other's rows, the advisory lock keeps them off each other's entities — so there is nothing to
+**Fix:** add workers. They coordinate through the database - `SKIP LOCKED` keeps them off each
+other's rows, the advisory lock keeps them off each other's entities - so there is nothing to
 configure:
 
 ```bash
@@ -50,7 +50,7 @@ SELECT entity_id, count(*) FROM webhook_event
 WHERE status = 'pending' GROUP BY 1 ORDER BY 2 DESC LIMIT 10;
 ```
 
-Events for *one* entity are processed strictly one at a time (FR-9) — by design, and it is why the
+Events for *one* entity are processed strictly one at a time (FR-9) - by design, and it is why the
 balance is right. Ten thousand events for one account will not go faster with more workers. That is
 the design working, not failing.
 
@@ -63,7 +63,7 @@ SELECT event_type, outcome, count(*) FROM v_processing_outcomes GROUP BY 1,2;
 SELECT * FROM v_dlq_open;   -- what has given up entirely
 ```
 
-Then look at one event's history — the attempts tell the story the event row cannot:
+Then look at one event's history - the attempts tell the story the event row cannot:
 
 ```sql
 SELECT * FROM v_event_overview WHERE id = :id;
@@ -107,7 +107,7 @@ Bounded by `REPLAY_MAX_BATCH` (default 100) and drains **oldest first**, so repe
 progress. The bound is deliberate: replay is synchronous and takes an advisory lock per event, so an
 unbounded "replay everything" is a self-inflicted outage wearing a recovery's clothes.
 
-**A replay that fails** puts the entry back to `needs_review` — it is not left stranded in
+**A replay that fails** puts the entry back to `needs_review` - it is not left stranded in
 `replaying`. If it fails again, you have not fixed the cause.
 
 **If the events are junk** (test traffic, a provider's mistake), discard rather than replay:
@@ -117,15 +117,15 @@ curl -H "X-Admin-Key: $ADMIN_API_KEY" -X POST https://.../v1/admin/dlq/{id}/disc
      -H 'content-type: application/json' -d '{"note": "provider test traffic"}'
 ```
 
-`resolved` and `discarded` are **terminal** and cannot be undone — the database refuses it, not just
+`resolved` and `discarded` are **terminal** and cannot be undone - the database refuses it, not just
 the API (`trg_dlq_terminal_is_terminal`). Be sure.
 
 ---
 
 ## 4. "Providers are getting 401s"
 
-The 401 is deliberately **indistinguishable** across all four causes — unknown source, missing
-header, malformed header, stale timestamp, bad MAC — because telling an attacker *which* one they got
+The 401 is deliberately **indistinguishable** across all four causes - unknown source, missing
+header, malformed header, stale timestamp, bad MAC - because telling an attacker *which* one they got
 wrong is an oracle. Which means it will tell you nothing either. Read the logs:
 
 ```
@@ -165,7 +165,7 @@ non-zero, and the ledger is append-only (`trg_ledger_entry_immutable`), so:
    ```
 2. **A ledger row was deleted with the escape hatch** (`SET LOCAL app.allow_ledger_delete = 'on'`).
    Check who, and why. There is no legitimate reason outside archival.
-3. **A genuine double-application** — which should be impossible, because the balance can only move
+3. **A genuine double-application** - which should be impossible, because the balance can only move
    on the same statement that claims the unique ledger row (ADR-0008). If it is this, the design is
    broken and you have found something that matters. Do not "fix" the balance until you know which of
    the three it was: correcting the number destroys the evidence.
@@ -184,10 +184,10 @@ alembic downgrade -1          # every migration in this repo has a working downg
 
 **Rollback** is the previous image tag. Tags are immutable (`IMMUTABLE` on the ECR repo), so
 `v0.1.3` means one thing forever. If a migration is involved, roll the code back first and only then
-decide about the schema — a schema downgrade that drops a column takes the data with it.
+decide about the schema - a schema downgrade that drops a column takes the data with it.
 
-**A worker killed mid-event loses nothing.** Everything about one event — the claim, the ledger row,
-the balance, the attempt record, the status — commits in a single transaction (ADR-0003). `SIGKILL`
+**A worker killed mid-event loses nothing.** Everything about one event - the claim, the ledger row,
+the balance, the attempt record, the status - commits in a single transaction (ADR-0003). `SIGKILL`
 it at any instant and Postgres rolls the lot back; the event returns to `pending` and the next poll
 picks it up. There is no reaper and nothing to clean up.
 
@@ -200,9 +200,9 @@ picks it up. There is no reaper and nothing to clean up.
 | `fn_queue_lag()` > 5 min | the provider would notice. This is the real SLO. |
 | `webhook_events_dead_lettered_total` rate > 0 | something is systematically broken. |
 | `fn_ledger_invariant_ok()` = false | **page immediately.** See §5. |
-| `webhook_ingest_duration_seconds` p99 > 50 ms | the app tier is saturating. Scale it out — CPU is the bound, not the database (`docs/load-test.md`). |
+| `webhook_ingest_duration_seconds` p99 > 50 ms | the app tier is saturating. Scale it out - CPU is the bound, not the database (`docs/load-test.md`). |
 | `webhook_events_rejected_total{reason="unauthorized"}` spike | either an attack, or a secret rotation somebody forgot to tell you about. |
 
 Note that ingestion and processing metrics come from **different processes**. The app serves
 `/metrics` on `:8000`; each worker serves its own on `:9100`. Prometheus scrapes a process, not an
-application — scrape both, or the half of the pipeline where events actually fail will be invisible.
+application - scrape both, or the half of the pipeline where events actually fail will be invisible.

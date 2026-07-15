@@ -25,13 +25,13 @@
                     worker tasks (private, no ingress at all, no load balancer)
 ```
 
-One image, three commands — the same shape as `docker-compose.yml`:
+One image, three commands - the same shape as `docker-compose.yml`:
 
 | | command |
 |---|---|
 | `app` | `uvicorn ... --factory` (image default) |
 | `worker` | `python -m webhook_receiver.worker.main` |
-| `migrate` | `alembic upgrade head` — a **one-shot task**, run to completion *before* the services update |
+| `migrate` | `alembic upgrade head` - a **one-shot task**, run to completion *before* the services update |
 
 One image means the worker cannot drift from the code that was tested, and a rollback is one tag
 rather than two.
@@ -44,17 +44,17 @@ corrupt a schema. The pipeline runs the task, waits for it to exit 0, *then* upd
 
 **The container healthcheck probes `/healthz`; the load balancer probes `/readyz`.** These answer
 different questions and must not be conflated. The container runtime is asking *"is this process
-alive?"* — and if that answer depended on the database, a ten-second RDS blip would kill and restart
-the entire fleet. The load balancer is asking *"should I send this task traffic?"* — and there the
+alive?"* - and if that answer depended on the database, a ten-second RDS blip would kill and restart
+the entire fleet. The load balancer is asking *"should I send this task traffic?"* - and there the
 answer absolutely is no if it cannot reach the database.
 
 **The worker's healthcheck had to be overridden.** The image's default probes `:8000`, which is the
 *app's* port; the worker never listens there. Leaving it would mean ECS kills every worker, forever.
-(This is not hypothetical — it is exactly what happened in `docker-compose` until `--wait` finally
+(This is not hypothetical - it is exactly what happened in `docker-compose` until `--wait` finally
 asked the worker whether it was well.)
 
 **No NAT gateway.** ~$32/month per AZ before a byte moves, and the tasks only need to reach AWS
-itself — ECR, CloudWatch, Secrets Manager. VPC endpoints do that privately, cost less, and mean a
+itself - ECR, CloudWatch, Secrets Manager. VPC endpoints do that privately, cost less, and mean a
 task has **no route to the internet at all**: a compromised container cannot phone home. The moment a
 handler needs to call a third-party API this must be revisited. Today none does.
 
@@ -63,7 +63,7 @@ carries no admin key), so it must not be publicly routable. Blocked at the edge 
 app, because an application-level check is one refactor away from being bypassed.
 
 **Secrets are ECS `secrets`, not `environment`.** An `environment` value is visible in the task
-definition to anyone with `ecs:DescribeTaskDefinition`. And `WEBHOOK_SECRETS` is created **empty** —
+definition to anyone with `ecs:DescribeTaskDefinition`. And `WEBHOOK_SECRETS` is created **empty** -
 Terraform state is plaintext, so a signing key written into a `.tf` is a signing key in every state
 backup and every CI log that ever printed a plan. Populate it out of band:
 
@@ -74,7 +74,7 @@ aws secretsmanager put-secret-value \
 ```
 
 **The app autoscales on CPU at a 60% target, not 90%.** The load test showed latency degrading
-sharply once the process saturates (`docs/load-test.md`) — by the time CPU reads 90%, the p99 has
+sharply once the process saturates (`docs/load-test.md`) - by the time CPU reads 90%, the p99 has
 already gone. And it scales the *tier*, not the process: `uvicorn --workers` would be cheaper but
 `prometheus_client` keeps a per-process registry, so a multi-worker container would under-report its
 own metrics by the worker count.
@@ -100,7 +100,7 @@ correctness one, and that is not an accident: an RDS failover surfaces as SQLSTA
 in `RETRYABLE_SQLSTATES` (ADR-0005), so the events in flight are rescheduled with backoff instead of
 dead-lettered. A failover costs a retry, not a backlog.
 
-The interface endpoints are the surprise on that bill — they cost more than the compute. Swapping
+The interface endpoints are the surprise on that bill - they cost more than the compute. Swapping
 them for a single NAT gateway (~$32) is cheaper *and* worse: it gives every task a route to the
 internet.
 
@@ -114,8 +114,8 @@ internet.
 - **`certificate_arn` has no default.** Providers will not send webhooks to plain HTTP, and neither
   should we accept them, so an ACM certificate has to exist first.
 - **No worker autoscaling.** Scaling on queue depth needs a custom CloudWatch metric published from
-  `fn_queue_lag()` or `v_queue_health`. The worker tier scales fine — `SKIP LOCKED` and the advisory
-  locks mean `worker_count` can be raised with no other change — it just does not do it *by itself*.
+  `fn_queue_lag()` or `v_queue_health`. The worker tier scales fine - `SKIP LOCKED` and the advisory
+  locks mean `worker_count` can be raised with no other change - it just does not do it *by itself*.
 - **No WAF, no rate limiting.** Signature verification is the real gate (an unsigned request is a
   401 before it touches the database), but a flood of *unsigned* requests still costs CPU.
 - **No alarms.** The metrics exist (FR-19) and `fn_queue_lag()` is the number to page on; nothing
